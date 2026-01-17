@@ -32,6 +32,25 @@
     return true;
   })();
 
+  function createCanvasElement(width, height) {
+    if (global.OffscreenCanvas) {
+      return new OffscreenCanvas(width, height);
+    }
+
+    if (global.document && typeof global.document.createElement === 'function') {
+      var canvas = global.document.createElement('canvas');
+      if (typeof width === 'number') {
+        canvas.width = width;
+      }
+      if (typeof height === 'number') {
+        canvas.height = height;
+      }
+      return canvas;
+    }
+
+    return null;
+  }
+
   function noop() {}
 
   // create a promise if it exists, otherwise, just
@@ -303,18 +322,29 @@
   }
 
   function setCanvasWindowSize(canvas) {
-    canvas.width = document.documentElement.clientWidth;
-    canvas.height = document.documentElement.clientHeight;
+    var doc = global.document;
+    if (!doc || !doc.documentElement) {
+      return;
+    }
+    canvas.width = doc.documentElement.clientWidth;
+    canvas.height = doc.documentElement.clientHeight;
   }
 
   function setCanvasRectSize(canvas) {
+    if (typeof canvas.getBoundingClientRect !== 'function') {
+      return;
+    }
     var rect = canvas.getBoundingClientRect();
     canvas.width = rect.width;
     canvas.height = rect.height;
   }
 
   function getCanvas(zIndex) {
-    var canvas = document.createElement('canvas');
+    var doc = global.document;
+    if (!doc || typeof doc.createElement !== 'function') {
+      throw new Error('Cannot create canvas element in this environment. Use confetti.create with a supplied canvas.');
+    }
+    var canvas = doc.createElement('canvas');
 
     canvas.style.position = 'fixed';
     canvas.style.top = '0px';
@@ -623,7 +653,10 @@
       } else if (isLibCanvas && !canvas) {
         // create and initialize a new canvas
         canvas = getCanvas(zIndex);
-        document.body.appendChild(canvas);
+        if (!global.document || !global.document.body) {
+          throw new Error('Cannot access document.body to append canvas. Use confetti.create with a supplied canvas.');
+        }
+        global.document.body.appendChild(canvas);
       }
 
       if (allowResize && !initialized) {
@@ -678,19 +711,21 @@
 
         if (allowResize) {
           hasResizeEventRegistered = false;
-          global.removeEventListener('resize', onResize);
+          if (typeof global.removeEventListener === 'function') {
+            global.removeEventListener('resize', onResize);
+          }
         }
 
         if (isLibCanvas && canvas) {
-          if (document.body.contains(canvas)) {
-            document.body.removeChild(canvas);
+          if (global.document && global.document.body && global.document.body.contains(canvas)) {
+            global.document.body.removeChild(canvas);
           }
           canvas = null;
           initialized = false;
         }
       }
 
-      if (allowResize && !hasResizeEventRegistered) {
+      if (allowResize && !hasResizeEventRegistered && typeof global.addEventListener === 'function') {
         hasResizeEventRegistered = true;
         global.addEventListener('resize', onResize, false);
       }
@@ -759,12 +794,15 @@
     }
 
     var path2d = new Path2D(path);
-    var tempCanvas = document.createElement('canvas');
+    var maxSize = 1000;
+    var tempCanvas = createCanvasElement(maxSize, maxSize);
+    if (!tempCanvas) {
+      throw new Error('Canvas is not available for path confetti in this environment.');
+    }
     var tempCtx = tempCanvas.getContext('2d');
 
     if (!matrix) {
       // attempt to figure out the width of the path, up to 1000x1000
-      var maxSize = 1000;
       var minX = maxSize;
       var minY = maxSize;
       var maxX = 0;
@@ -825,7 +863,10 @@
     var fontSize = 10 * scalar;
     var font = '' + fontSize + 'px ' + fontFamily;
 
-    var canvas = new OffscreenCanvas(fontSize, fontSize);
+    var canvas = createCanvasElement(fontSize, fontSize);
+    if (!canvas) {
+      throw new Error('Canvas is not available for text confetti in this environment.');
+    }
     var ctx = canvas.getContext('2d');
 
     ctx.font = font;
@@ -839,7 +880,10 @@
     width += padding + padding;
     height += padding + padding;
 
-    canvas = new OffscreenCanvas(width, height);
+    canvas = createCanvasElement(width, height);
+    if (!canvas) {
+      throw new Error('Canvas is not available for text confetti in this environment.');
+    }
     ctx = canvas.getContext('2d');
     ctx.font = font;
     ctx.fillStyle = color;
@@ -847,6 +891,10 @@
     ctx.fillText(text, x, y);
 
     var scale = 1 / scalar;
+
+    if (typeof canvas.transferToImageBitmap !== 'function') {
+      throw new Error('Canvas is not capable of creating bitmaps in this environment.');
+    }
 
     return {
       type: 'bitmap',
